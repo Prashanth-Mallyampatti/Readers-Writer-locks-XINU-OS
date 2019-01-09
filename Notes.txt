@@ -1,0 +1,123 @@
+1) The priority inversion problem could cause that a higher-priority process needs to wait for the completion of a lower-priority process.
+Priority inheritance is one approach to address this issue. Other approach is:
+	   Priority Ceiling: In this approach when a task acquires a shared resource, the priority of the process is temporarily raised to the priority ceiling of that resource. This ceilining is set higher than highest priority of all tasks that can access the resource. This ensures that the task isn't preempted by any other contending processes. This is priority raise is dynamically done which not only solves priority inversion but also deadlock problems.
+
+
+
+2) Below is the output of task1.c(in sys folder), which shows a comparision between semaphores and Locks with priority inversion:
+Here in Locks with priority inversion testing, the low priority processes(A & B) are ramped up, as the higher priority process(C) is waiting for the lock held by A & B process. Whereas in semaphore, no ramping up of priority takes place. Thus priority inversion(in default XINU implementstion-semaphore) is solved by this approach.
+
+************* Semaphore Testing **************
+
+Starting A(reader process):
+Process A priority: 10
+Process A acquired semaphore, priority: 10
+
+Starting B(reader process):
+Process B priority: 20
+Priority of A: 10(no ramp up)
+Process A releasing lock
+Process B acquired semaphore, priority: 20
+
+Starting C(writer process):
+Process C priority: 30
+Priority of B: 20(no ramp up)
+Process B releasing lock
+Process C acquired semaphore, priority: 30
+Process C releasing semaphore
+
+Semaphore Test OK
+
+
+******* Locks with Priority Inversion ********
+
+Starting A(reader process):
+Process A priority: 10
+Process A acquired lock, priority: 10
+
+Starting B(reader process):
+Process B priority: 20
+Process B acquired lock, priority: 20
+
+Starting C(writer process):
+Process C priority: 30
+Priority od A: 30(ramped up)
+Process A releasing lock
+Priority od B: 30(ramped up)
+Process B releasing lock
+Process C acquired lock, priority: 30
+Process C releasing lock
+
+Lock Test OK
+
+
+
+3) Synchronization is a quite complex issue in operating systems. To understand about process synchronization, given a pesudo-code,we will find a reader/writer synchronization issue: 
+
+int do_update (void)
+{
+    int ret;
+    int   unlocked;
+
+    //LOCK_READER: acquire lock as a reader
+    // unlocked == 1 means fail, unlocked==0 means success
+    unlocked = LOCK_READER (&lock);
+    if (unlocked)
+        return ERROR;
+
+    ret = try_update();
+    LOCK_UNLOCK (&lock);
+
+    return ret;
+}
+int try_update (void)
+{
+    time_t  newtime;
+    int  szlen = 0;
+    char    bufstr[MAX_STRING];
+    int buflen = 0;
+
+    newtime = time (NULL);
+    if (global_now >= newtime)
+        return OK;
+
+    /* Fill the buffer with the string representation of current time
+     * return number of characters written to the buffer.
+     * */
+    szlen = get_string_from_time(bufstr, sizeof(bufstr), newtime);
+    acquire(global_semaphore); // global_semaphore is a counting semaphore initialized to 10
+    buflen = buffer_add (&global_buf, bufstr, szlen);
+    release(global_semaphore);
+    return buflen;
+
+}
+/*buffer_t is defined as follows:
+     typedef struct
+     {
+                int size; //maximum length of the buf
+                int len;  //current length of the buf
+                char* buf; //buffer to store actual string
+     } buffer_t;
+*/
+int
+buffer_add (buffer_t *buf, const char *txt, int size)
+{
+    int free = buf->size - buf->len;
+    if (size <= 0)
+        return OK;
+    if ( free < (size+1)) {
+            return ERROR;
+    }
+    memcpy (buf->buf + buf->len, txt, size);
+    buf->len += size;
+    buf->buf[buf->len] = '\0';
+
+    return OK;
+}
+
+
+Multiple reader threads can execute this code concurrently by calling do_update. All the variables starting with global_ are global variables. 
+The potential issue caused by the incorrect synchronization and thread interleaving that would trigger the problem is :
+
+	Here the process is a reader process, which is allowed to have concurrent accesses, also the do_update() function can be used by multiple readers that acquire the lock.
+	Suppose a process acquires a read lock and performs write operations, and another process which is write acquires the lock at the same time(since read locks are not exclusive),this process also overwrites the data. Hence multiple processes writing data which aren't exclusive, leads to data inconsistency. This is the issue in the given pseudo code.
